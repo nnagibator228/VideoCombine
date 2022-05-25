@@ -7,4 +7,5 @@ this small script helps you to generate fully unique frame sequence from a singl
 ### Video Result (gif compressed)
 ![video example](gif_example.gif)
 
-
+## Remark
+This script needs a _mask.mov_ file which contains randomly generated artifacts (file not included)

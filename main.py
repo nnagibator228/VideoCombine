@@ -4,12 +4,12 @@ import cv2
 import numpy as np
 from moviepy.editor import *
 
-
+# creates a local copy of source file
 def copy_file(src):
     cv2.imwrite('output.png', cv2.imread(src), [cv2.IMWRITE_PNG_COMPRESSION])
     print("local image copy created")
 
-
+# crops image to fit square 750x750px
 def crop_image():
     img = cv2.imread("output.png")
     w = int(img.shape[1])
@@ -23,7 +23,7 @@ def crop_image():
                 [cv2.IMWRITE_PNG_COMPRESSION])
     print("image copy cropped")
 
-
+# combines generated video with mask
 def video_combine(length, render_path):
     main = VideoFileClip("img.avi")
     mask = VideoFileClip("mask1.mov", has_mask=True).resize(main.size)
@@ -31,13 +31,13 @@ def video_combine(length, render_path):
     video = CompositeVideoClip([main, mask_speedup.set_duration(main.duration)], size=main.size)
     video.write_videofile(f"{render_path}\combined.mp4", fps=60)
 
-
+# cleanup remaining files
 def cleanup():
     os.remove("img.avi")
     os.remove("output.png")
     print("cleanup done")
 
-
+# checks correctness of the input data 
 def test(length, source, render_path):
     supported_extensions = [".png", ".jpg", ".jpeg"]
     source_correct = False
@@ -65,7 +65,7 @@ def test(length, source, render_path):
     print("input data correct")
     return 1
 
-
+# creates randomly shift frames sequence
 def image_to_video(time):
     img_array = []
     fps = 60
@@ -93,7 +93,7 @@ def image_to_video(time):
     out.release()
     print("completed image convertion")
 
-
+# main function that combines all other functions
 def main(length, source, render_path):
     if test(length, source, render_path):
         copy_file(source)
@@ -102,6 +102,6 @@ def main(length, source, render_path):
         video_combine(length, render_path)
         cleanup()
 
-
+# requested arguments: video length (in secs, under 150s), source image to be used, folder to export result
 if __name__ == '__main__':
-    main(90, 'D:\lest1\material\material2.png', 'D:\lest1\lesult')
+    main(90, 'material.png', 'D:\test1\result')

@@ -1,15 +1,28 @@
 import random
-
+import time
+import glob
 import cv2
 import numpy as np
+import multiprocessing
 from moviepy.editor import *
+from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 
-# creates a local copy of source file
+
+def render_chunk(file, mask, start, end, number, render_path):
+    clip_duration = end - start
+    print(f'[DEBUG] number: {number:2} | start: {start:6.2f} | end: {end:6.2f} | duration: {clip_duration:.2f}')
+    clip = VideoFileClip(file).subclip(start, end)
+    clip = clip.volumex(2)
+    clip_mask = VideoFileClip(mask, has_mask=True).resize(clip.size).subclip(start, end)
+    video = CompositeVideoClip([clip, clip_mask.set_duration(clip.duration)], size=clip.size)
+    video.write_videofile(f"tmp\combined_part{number}.mp4", fps=60)
+
+
 def copy_file(src):
     cv2.imwrite('output.png', cv2.imread(src), [cv2.IMWRITE_PNG_COMPRESSION])
     print("local image copy created")
 
-# crops image to fit square 750x750px
+
 def crop_image():
     img = cv2.imread("output.png")
     w = int(img.shape[1])
@@ -23,21 +36,44 @@ def crop_image():
                 [cv2.IMWRITE_PNG_COMPRESSION])
     print("image copy cropped")
 
-# combines generated video with mask
+
 def video_combine(length, render_path):
     main = VideoFileClip("img.avi")
     mask = VideoFileClip("mask1.mov", has_mask=True).resize(main.size)
     mask_speedup = mask.speedx(factor=(length / mask.duration))
-    video = CompositeVideoClip([main, mask_speedup.set_duration(main.duration)], size=main.size)
-    video.write_videofile(f"{render_path}\combined.mp4", fps=60)
+    video_duration = main.duration
+    number = 0
+    time_start = time.time()
+    args_for_all_processes = []
+    for start in range(0, int(video_duration), 30):
+        end = start + 30
 
-# cleanup remaining files
+        if end > video_duration:
+            end = video_duration
+
+        number += 1
+        print("add process:", number)
+        args_for_all_processes.append(("img.avi", "mask1.mov", start, end, number, render_path))
+    with multiprocessing.Pool(4) as pool:
+        results = pool.starmap(render_chunk, args_for_all_processes)
+    print('number of subclips:', number)
+
+    time_end = time.time()
+
+    diff = time_end - time_start
+    print(f'time: {diff:.2f}s ({diff // 60:02.0f}:{diff % 60:02.2f})')
+    result = concatenate_videoclips([VideoFileClip(f"tmp\combined_part{i+1}.mp4") for i in range(number)])
+    result.write_videofile(f"{render_path}\combined.mp4", fps=60)
+
+
 def cleanup():
-    os.remove("img.avi")
     os.remove("output.png")
+    for file in glob.glob("tmp/"):
+        os.remove(file)
+    os.remove("img.avi")
     print("cleanup done")
 
-# checks correctness of the input data 
+
 def test(length, source, render_path):
     supported_extensions = [".png", ".jpg", ".jpeg"]
     source_correct = False
@@ -65,43 +101,43 @@ def test(length, source, render_path):
     print("input data correct")
     return 1
 
-# creates randomly shift frames sequence
+
 def image_to_video(time):
-    img_array = []
     fps = 60
     img = cv2.imread("output.png")
-    for i in range(1, fps * time):
-        img_array.append(img)
     height, width, layers = img.shape
     size = (width, height)
-
+    frame_count = fps * time
     out = cv2.VideoWriter('img.avi', cv2.VideoWriter_fourcc(*'DIVX'), fps, size)
-    for i in range(len(img_array)):
-        frame = img_array[i]
-        width = int(frame.shape[1] * 1.31)
-        height = int(frame.shape[0] * 1.31)
+    for i in range(1, frame_count):
+        width = int(img.shape[1] * 1.42)
+        height = int(img.shape[0] * 1.42)
         dim = (width, height)
-        shiftX = random.randint(-1 * (int(frame.shape[1] * 0.31 * 0.5) + 1), int(frame.shape[1] * 0.31 * 0.5) + 1)
-        shiftY = random.randint(-1 * (int(frame.shape[0] * 0.31 * 0.5) + 1), int(frame.shape[0] * 0.31 * 0.5) + 1)
+        shiftX = random.randint(-1 * (int(img.shape[1] * 0.31 * 0.5) + 1), int(img.shape[1] * 0.31 * 0.5) + 1)
+        shiftY = random.randint(-1 * (int(img.shape[0] * 0.31 * 0.5) + 1), int(img.shape[0] * 0.31 * 0.5) + 1)
         M = np.float32([[1, 0, shiftX], [0, 1, shiftY]])
-        upscaled = cv2.resize(frame, dim)
+        upscaled = cv2.resize(img, dim)
         shifted = cv2.warpAffine(upscaled, M, (upscaled.shape[1], upscaled.shape[0]))
         crop_img = shifted[int(img.shape[0] * 0.31 * 0.5):int(img.shape[0] * 0.31 * 0.5) + img.shape[0],
                    int(img.shape[1] * 0.31 * 0.5):int(img.shape[1] * 0.31 * 0.5) + img.shape[1]]
         out.write(crop_img)
-        print(str("%.2f" % float(i / len(img_array) * 100)) + "% of frames completed")
+        print(str("%.2f" % float(i / frame_count * 100)) + "% of frames completed")
     out.release()
     print("completed image convertion")
 
-# main function that combines all other functions
+
 def main(length, source, render_path):
     if test(length, source, render_path):
+        time_start = time.time()
         copy_file(source)
         crop_image()
         image_to_video(length)
         video_combine(length, render_path)
         cleanup()
+        time_end = time.time()
+        diff = time_end - time_start
+        print(f'time: {diff:.2f}s ({diff // 60:02.0f}:{diff % 60:02.2f})')
 
-# requested arguments: video length (in secs, under 150s), source image to be used, folder to export result
+
 if __name__ == '__main__':
-    main(90, 'material.png', 'D:\test1\result')
+    main(10, 'G:\combiner\source\img4.png', 'G:\combiner\end')
